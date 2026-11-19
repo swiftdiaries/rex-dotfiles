@@ -35,7 +35,8 @@ link "$REPO/mac/config/host.lua" "$HOME/.config/rex/host.lua"
 
 PLIST="$HOME/Library/LaunchAgents/com.rex.autoforward.plist"
 mkdir -p "$(dirname "$PLIST")"
-sed -e "s#@HOME@#$HOME#g" "$REPO/mac/launchd/com.rex.autoforward.plist.tmpl" > "$PLIST"
+REXDIR="$(dirname "$(command -v rex 2>/dev/null || echo /usr/local/bin/rex)")"
+sed -e "s#@HOME@#$HOME#g" -e "s#@REXDIR@#$REXDIR#g" "$REPO/mac/launchd/com.rex.autoforward.plist.tmpl" > "$PLIST"
 launchctl unload "$PLIST" 2>/dev/null || true
 launchctl load -w "$PLIST"
 echo "  loaded launchd agent com.rex.autoforward"

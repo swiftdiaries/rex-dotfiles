@@ -12,10 +12,27 @@ local SESSION = "dev"
 local HOME = os.getenv("HOME")
 local HOST_FILE = (os.getenv("XDG_CONFIG_HOME") or (HOME .. "/.config")) .. "/rex/host.lua"
 
+-- The app's PATH is the GUI one, so a bare "rex" is often not found. REX_BIN
+-- wins, then the usual install locations, then whatever PATH has.
+local function rex_bin()
+  local candidates = {
+    os.getenv("REX_BIN"),
+    HOME .. "/.local/bin/rex",
+    "/opt/homebrew/bin/rex",
+    "/usr/local/bin/rex",
+    HOME .. "/Library/Application Support/com.superlogical.rex/RexServer/Versions/Current/Rex Server.app/Contents/MacOS/rex",
+  }
+  for _, path in ipairs(candidates) do
+    local r = path and rex.exec({ "/bin/test", "-x", path })
+    if r and r.ok then return path end
+  end
+  return "rex"
+end
+
 local function vm_call(endpoints, method, args)
   local why
   for _, ep in ipairs(endpoints) do
-    local r, err = rex.exec({ "rex", "-S", ep, "--timeout", "30s", "api", "call",
+    local r, err = rex.exec({ rex_bin(), "-S", ep, "--timeout", "30s", "api", "call",
                               method, rex.json.encode(args) }, { timeout = 60 })
     if not r then return nil, "rex CLI: " .. err end
     if r.ok then return rex.json.decode(r.stdout) end
