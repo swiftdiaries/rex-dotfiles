@@ -1,0 +1,66 @@
+#!/bin/bash
+# rex-autoforward: VS Code-style auto port forwarding through Rex.
+# Polls the VM for TCP listeners and keeps a `rex forward new -L p:localhost:p`
+# running for each one, so http://localhost:<port> on the Mac just works.
+# Forwards go through Rex's own connection (they show in `rex forward ls`),
+# reconnect on their own, and stop when the port closes on the VM.
+# Works with macOS's stock bash 3.2.
+#
+# Env:
+#   REX_FWD_HOST     Rex host label and ssh alias      (default: rex-vm-host)
+#   REX_FWD_MIN      lowest port to forward            (default: 1024)
+#   REX_FWD_IGNORE   space-separated ports to skip     (default: "")
+#   REX_FWD_INTERVAL poll seconds                      (default: 3)
+set -u
+
+HOST="$("$(dirname "$0")/rex-vm-host")"
+MIN="${REX_FWD_MIN:-1024}"
+IGNORE=" ${REX_FWD_IGNORE:-} "
+INTERVAL="${REX_FWD_INTERVAL:-3}"
+STATE="${TMPDIR:-/tmp}/rex-autoforward.$HOST"   # one pidfile per port
+mkdir -p "$STATE"
+
+log() { printf '%s %s\n' "$(date +%T)" "$*"; }
+
+stop_port() { kill "$(cat "$STATE/$1" 2>/dev/null)" 2>/dev/null; rm -f "$STATE/$1"; }
+
+cleanup() { for f in "$STATE"/*; do [ -e "$f" ] && stop_port "$(basename "$f")"; done; exit 0; }
+trap cleanup INT TERM
+
+# Forwards a killed earlier run left behind.
+rex -S "$HOST" forward close --orphaned >/dev/null 2>&1
+rm -f "$STATE"/*
+
+remote_ports() {
+  # Listeners on loopback or all interfaces. A dev server bound only to a
+  # LAN IP is skipped, since localhost:<port> on the VM wouldn't reach it.
+  out="$(ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST" 'ss -Hltn')" || return 1
+  printf '%s\n' "$out" | awk '{print $4}' \
+    | grep -E '^(127\.0\.0\.1|0\.0\.0\.0|\*|\[::\]|\[::1\]):[0-9]+$' \
+    | sed -E 's/.*:([0-9]+)$/\1/' | sort -un
+}
+
+alive() { kill -0 "$(cat "$STATE/$1" 2>/dev/null)" 2>/dev/null; }
+local_busy() { lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
+
+while :; do
+  if ports="$(remote_ports)"; then
+    live=" "
+    for p in $ports; do
+      [ "$p" -lt "$MIN" ] && continue
+      case "$IGNORE" in *" $p "*) continue ;; esac
+      live="$live$p "
+      alive "$p" && continue
+      local_busy "$p" && continue   # Mac already uses it; forward by hand
+      rex -S "$HOST" forward new -L "$p:localhost:$p" >/dev/null 2>&1 &
+      echo $! > "$STATE/$p"
+      log "forward localhost:$p -> $HOST:$p"
+    done
+    for f in "$STATE"/*; do
+      [ -e "$f" ] || continue
+      p="$(basename "$f")"
+      case "$live" in *" $p "*) ;; *) stop_port "$p"; log "closed $p" ;; esac
+    done
+  fi
+  sleep "$INTERVAL"
+done

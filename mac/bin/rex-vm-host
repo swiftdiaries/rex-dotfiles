@@ -1,0 +1,8 @@
+#!/bin/bash
+# rex-vm-host: print the dev VM's ssh alias. REX_FWD_HOST wins, then the
+# choice saved in ~/.config/rex/host.lua (install.sh or "VM: Choose Host…"),
+# then devvm.
+if [ -n "${REX_FWD_HOST:-}" ]; then echo "$REX_FWD_HOST"; exit; fi
+f="${XDG_CONFIG_HOME:-$HOME/.config}/rex/host.lua"
+h="$(sed -n 's/.*ssh *= *"\([^"]*\)".*/\1/p' "$f" 2>/dev/null)"
+echo "${h:-devvm}"

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template: install.sh fills in @HOME@. The host comes from rex-vm-host. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.rex.autoforward</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>@HOME@/.local/bin/rex-autoforward</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:@HOME@/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>REX_FWD_IGNORE</key><string></string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/tmp/rex-autoforward.log</string>
+  <key>StandardErrorPath</key><string>/tmp/rex-autoforward.log</string>
+</dict>
+</plist>
