@@ -31,10 +31,11 @@ end
 
 local function vm_call(endpoints, method, args)
   local why
+  local bin = rex_bin()
   for _, ep in ipairs(endpoints) do
-    local r, err = rex.exec({ rex_bin(), "-S", ep, "--timeout", "30s", "api", "call",
+    local r, err = rex.exec({ bin, "-S", ep, "--timeout", "30s", "api", "call",
                               method, rex.json.encode(args) }, { timeout = 60 })
-    if not r then return nil, "rex CLI: " .. err end
+    if not r then return nil, "running " .. bin .. ": " .. err end
     if r.ok then return rex.json.decode(r.stdout) end
     why = why or r.stderr:gsub("^Error: ", ""):gsub("%s+$", "")
   end
