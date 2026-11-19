@@ -14,7 +14,8 @@ REX="$(command -v rex || echo ~/.local/bin/rex)"
 "$REX" terminfo setup --entry-only
 
 # Shared key bindings (same file as the Mac) and the worktree action.
-# Edit root/copy/run in ~/.config/rex/init.lua; reruns keep your edits.
+# Edit root/base/copy in ~/.config/rex/init.lua; reruns keep your edits.
+# What runs in a worktree comes from the repo's .rex/tasks.json.
 mkdir -p ~/.config/rex
 INIT=~/.config/rex/init.lua
 touch "$INIT"
@@ -23,11 +24,14 @@ grep -q 'require("worktree")' "$INIT" || cat >> "$INIT" <<'EOF'
 require("worktree"){
   root = "~/projects",          -- repos are <root>/<repo>, worktrees <root>/<repo>.worktrees/<branch>
   base = "main",                 -- new branches start at origin/<base>
-  run  = "",                   -- command typed into the top pane, e.g. "make dev"
   copy = {},                    -- creds beyond .env*, relative to the main checkout
 }
 rex.bind("alt+cmd+w", "worktree_open")
 EOF
+
+# rex-task runs one node of a task DAG in its pane (see vm/config/tasks.lua).
+mkdir -p ~/.local/bin
+install -m 755 "$(dirname "$0")/rex-task" ~/.local/bin/rex-task
 
 # OSC 52 copy helper: `git diff | clip`, `clip < file`. Goes straight to the
 # Mac clipboard through Rex, no X/Wayland needed on the VM.
@@ -61,4 +65,4 @@ mkdir -p "$(dirname "$NVIM_CFG")"
 vim.g.clipboard = 'osc52'
 EOF
 
-echo "done. Copy keys.lua and worktree.lua to ~/.config/rex/ here, then: rex config reload"
+echo "done. Copy keys.lua, tasks.lua and worktree.lua to ~/.config/rex/ here, then: rex config reload"

@@ -1,13 +1,14 @@
 -- "Project: Worktree…" on the VM. Picks a repo under opts.root, then an
 -- existing worktree or a new branch off origin/<opts.base>, copies the main
 -- checkout's git-ignored .env files (and opts.copy) into it, and opens a tab
--- running opts.run above a spare shell. Running it again for the same branch
--- focuses that tab.
+-- with one pane per task of the chosen group in .rex/tasks.json (see tasks.lua)
+-- above a spare shell. Running it again for the same branch focuses that tab.
 --
 -- The pickers need Rex's custom UI (rex.ui, API revision 17). Without it, pass
--- the answers:  rex do worktree_open repo=myrepo branch=feature/x
+-- the answers:  rex do worktree_open repo=myrepo branch=feature/x group=up
 
 local HOME = os.getenv("HOME")
+local tasks = require("tasks")
 
 local function sh(argv, cwd)
   local r, err = rex.exec(argv, { cwd = cwd, timeout = 300 })
@@ -99,7 +100,40 @@ local function copy_secrets(main, path, extra)
   return copied
 end
 
-local function open_tab(label, path, run)
+-- .rex/tasks.json from the worktree, else the main checkout (it may be git-ignored).
+local function load_spec(main, path)
+  for _, dir in ipairs({ path, main }) do
+    local file = dir .. "/.rex/tasks.json"
+    if exists(file) then
+      local ok, spec = pcall(rex.json.decode, sh({ "cat", file }))
+      if not ok or type(spec) ~= "table" then
+        error(file .. ": not valid JSON", 0)
+      end
+      return spec
+    end
+  end
+end
+
+local function choose_group(spec, name, requested)
+  if requested then return requested end
+  local groups = tasks.group_labels(spec)
+  if #groups <= 1 then return groups[1] end
+  local items = {}
+  for _, g in ipairs(groups) do items[#items + 1] = { id = g, title = g, icon = "play" } end
+  return pick({ title = name .. ": tasks", placeholder = "Pick a task group", items = items })
+end
+
+-- Task panes stacked top to bottom, then a spare shell.
+local function stack(panes)
+  if #panes == 1 then return panes[1] end
+  local rest = {}
+  for i = 2, #panes do rest[#rest + 1] = panes[i] end
+  return rex.layout.vertical(1 / #panes, panes[1], stack(rest))
+end
+
+-- make_inputs runs only when the tab is created, so refocusing a running
+-- tab never resets its task state.
+local function open_tab(label, path, make_inputs)
   local view = rex.session.view{}
   for _, w in ipairs(view and view.windows or {}) do
     if w.label == label then
@@ -107,16 +141,18 @@ local function open_tab(label, path, run)
       return w.window_id
     end
   end
-  local shell = function(input)
-    return rex.layout.block{
+  local panes = {}
+  for _, input in ipairs(make_inputs()) do
+    panes[#panes + 1] = rex.layout.block{
       flavor  = "com.superlogical.terminal.shell",
-      options = { cwd = path, initial_input = input },
+      options = { cwd = path, initial_input = input .. "\r" },
     }
   end
-  local made, err = rex.session.new_window{
-    window_label = label,
-    layout = rex.layout.vertical(0.6, shell(run ~= "" and (run .. "\r") or nil), shell(nil)),
+  panes[#panes + 1] = rex.layout.block{
+    flavor  = "com.superlogical.terminal.shell",
+    options = { cwd = path },
   }
+  local made, err = rex.session.new_window{ window_label = label, layout = stack(panes) }
   if not made then error("new tab: " .. err, 0) end
   return made.window_id
 end
@@ -124,7 +160,6 @@ end
 return function(opts)
   local root = opts.root:gsub("^~", HOME)
   local base = opts.base or "main"
-  local run = opts.run or ""
 
   rex.action{
     name        = "worktree_open",
@@ -132,8 +167,8 @@ return function(opts)
     category    = "Project",
     keywords    = "git worktree branch dev env app",
     description = "Open or create a worktree off origin/" .. base
-                  .. ", copy its .env files" .. (run ~= "" and (", and run `" .. run .. "`") or "") .. ".",
-    args        = { repo = "string?", branch = "string?" },
+                  .. ", copy its .env files, and run a group of .rex/tasks.json.",
+    args        = { repo = "string?", branch = "string?", group = "string?" },
     run = function(ctx, args)
       local main
       if args.repo then
@@ -175,8 +210,25 @@ return function(opts)
 
       if not exists(path) then create(main, branch, path, base) end
       local copied = copy_secrets(main, path, opts.copy or {})
-      local window_id = open_tab(name .. ":" .. branch, path, run)
-      return { path = path, branch = branch, copied = copied,
+
+      local spec = load_spec(main, path)
+      local group = spec and choose_group(spec, name, args.group)
+      if spec and not group and #tasks.group_labels(spec) > 1 then return end
+      local plan, perr = {}, nil
+      if spec then plan, perr = tasks.plan(spec, group) end
+      if not plan then error(".rex/tasks.json: " .. perr, 0) end
+
+      local window_id = open_tab(name .. ":" .. branch, path, function()
+        local state = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/rex-tasks/"
+                      .. name .. "-" .. branch:gsub("/", "-")
+        sh({ "rm", "-rf", state })
+        sh({ "mkdir", "-p", state })
+        local ctx = tasks.context(name, main, path, branch)
+        local inputs = {}
+        for _, t in ipairs(plan) do inputs[#inputs + 1] = tasks.invocation(t, state, ctx) end
+        return inputs
+      end)
+      return { path = path, branch = branch, copied = copied, group = group,
                window_id = window_id }
     end,
   }

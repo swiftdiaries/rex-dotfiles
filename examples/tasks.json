@@ -1,0 +1,14 @@
+{
+  "tasks": [
+    { "label": "install", "command": "npm ci" },
+    { "label": "db", "command": "docker compose up db", "service": true, "ready": { "port": 5432 } },
+    { "label": "migrate", "command": "make migrate", "depends_on": ["install", "db"] },
+    { "label": "app", "command": "npm run dev", "service": true, "depends_on": ["migrate"],
+      "env": { "PORT": "$((3000 + REX_PORT_OFFSET))" } },
+    { "label": "test", "command": "npm test", "depends_on": ["install"] }
+  ],
+  "groups": [
+    { "label": "up", "tasks": ["app"] },
+    { "label": "test", "tasks": ["test"] }
+  ]
+}

@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# rex-task run STATE LABEL [--needs a,b] [--service]
+#                [--ready-port N] [--ready-delay SECS] -- SCRIPT
+#
+# One node of a task DAG, run in its own terminal pane. Waits for each task in
+# --needs, runs SCRIPT, and records the outcome in STATE/LABEL.status:
+#   ok       finished with exit 0
+#   failed   exited non-zero (or a service never became ready)
+#   skipped  a dependency failed, so this never ran
+#   ready    a --service task that is up (counts as satisfied for dependents)
+# A task whose dependency is failed or skipped is skipped too.
+set -u
+
+usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+[ "${1:-}" = run ] && [ $# -ge 3 ] || usage
+state=$2 label=$3
+shift 3
+needs="" service=0 port="" delay=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    --needs) needs=$2; shift 2 ;;
+    --service) service=1; shift ;;
+    --ready-port) port=$2; shift 2 ;;
+    --ready-delay) delay=$2; shift 2 ;;
+    --) shift; break ;;
+    *) usage ;;
+  esac
+done
+[ $# -eq 1 ] || usage
+script=$1
+
+mkdir -p "$state"
+set_status() { printf '%s\n' "$1" > "$state/$label.tmp" && mv "$state/$label.tmp" "$state/$label.status"; }
+say() { printf '\033[1;36m[%s]\033[0m %s\n' "$label" "$*"; }
+
+IFS=, read -r -a deps <<< "$needs"
+for dep in ${deps[@]+"${deps[@]}"}; do
+  announced=0
+  while :; do
+    s=$(cat "$state/$dep.status" 2>/dev/null) || s=""
+    case $s in
+      ok|ready) break ;;
+      failed|skipped) say "skipped: $dep $s"; set_status skipped; exit 1 ;;
+    esac
+    [ $announced = 1 ] || { say "waiting for $dep"; announced=1; }
+    sleep 0.5
+  done
+done
+
+port_open() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+
+watcher=""
+if [ $service = 1 ]; then
+  if [ -n "$port" ]; then
+    ( for _ in $(seq 240); do
+        port_open "$port" && { say "ready: port $port"; set_status ready; exit 0; }
+        sleep 0.5
+      done
+      say "not ready: port $port never opened"; set_status failed ) &
+    watcher=$!
+  elif [ -n "$delay" ]; then
+    ( sleep "$delay"; say "ready after ${delay}s"; set_status ready ) &
+    watcher=$!
+  else
+    set_status ready
+  fi
+fi
+
+say "running"
+bash -c "$script"
+rc=$?
+[ -n "$watcher" ] && kill "$watcher" 2>/dev/null
+if [ $rc -eq 0 ]; then set_status ok; say "ok"; else set_status failed; say "failed (exit $rc)"; fi
+exit $rc

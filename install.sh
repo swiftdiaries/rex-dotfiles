@@ -45,6 +45,6 @@ command -v rex >/dev/null && rex config check && rex config reload || true
 if [ "$VM" = 1 ]; then
   echo "VM ($HOST):"
   ssh "$HOST" 'mkdir -p ~/.config/rex /tmp/rex-dotfiles'
-  scp -q "$REPO/vm/setup.sh" "$REPO/mac/config/keys.lua" "$REPO/vm/config/worktree.lua" "$HOST:/tmp/rex-dotfiles/"
-  ssh "$HOST" 'bash /tmp/rex-dotfiles/setup.sh && cp /tmp/rex-dotfiles/keys.lua /tmp/rex-dotfiles/worktree.lua ~/.config/rex/ && (~/.local/bin/rex config reload 2>/dev/null || rex config reload)'
+  scp -q "$REPO/vm/setup.sh" "$REPO/mac/config/keys.lua" "$REPO/vm/config/tasks.lua" "$REPO/vm/config/worktree.lua" "$REPO/vm/bin/rex-task" "$HOST:/tmp/rex-dotfiles/"
+  ssh "$HOST" 'bash /tmp/rex-dotfiles/setup.sh && cp /tmp/rex-dotfiles/keys.lua /tmp/rex-dotfiles/tasks.lua /tmp/rex-dotfiles/worktree.lua ~/.config/rex/ && (~/.local/bin/rex config reload 2>/dev/null || rex config reload)'
 fi
